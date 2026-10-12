@@ -3,7 +3,7 @@
 window.APP_CONFIG = {
   API_URL: (location.hostname === "localhost" || location.hostname === "127.0.0.1")
     ? "http://" + location.hostname + ":8080/api"
-    : "https://YOUR-BACKEND.onrender.com/api",
+    : "https://expense-tracker-backend-53zf.onrender.com/api",
   CURRENCY: "₹",
   LOCALE: "en-IN",
   CATEGORIES: ["Food", "Groceries", "Transport", "Shopping", "Bills", "Rent", "Health", "Education", "Entertainment", "Travel", "Other"],
