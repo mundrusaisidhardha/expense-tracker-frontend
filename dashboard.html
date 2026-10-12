@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboard – Expense Tracker</title><link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body>
+<aside class="sidebar" id="sidebar"></aside>
+<main class="main">
+  <div class="topbar" id="topbar"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;gap:10px;flex-wrap:wrap">
+    <select id="period" style="max-width:200px">
+      <option value="month">This month</option><option value="lastmonth">Last month</option>
+      <option value="30">Last 30 days</option><option value="year">This year</option><option value="all">All time</option>
+    </select>
+    <a class="btn" href="expenses.html?add=1">➕ Add expense</a>
+  </div>
+
+  <div class="grid g4">
+    <div class="card stat"><div class="label">Total spent</div><div class="value" id="sTotal">–</div><div class="sub" id="sCount"></div></div>
+    <div class="card stat"><div class="label">This month</div><div class="value" id="sMonth">–</div><div class="sub" id="sChange"></div></div>
+    <div class="card stat"><div class="label">Projected month-end</div><div class="value" id="sProj">–</div><div class="sub">based on current pace</div></div>
+    <div class="card stat"><div class="label">Top category</div><div class="value" id="sTop">–</div><div class="sub" id="sAvg"></div></div>
+  </div>
+
+  <div class="grid g2 mt">
+    <div class="card"><h3>Spending by category</h3><div class="chart-box"><canvas id="cCat"></canvas></div></div>
+    <div class="card"><h3>Monthly trend (12 months)</h3><div class="chart-box"><canvas id="cMonth"></canvas></div></div>
+  </div>
+  <div class="card mt"><h3>Daily spending</h3><div class="chart-box" style="height:240px"><canvas id="cDay"></canvas></div></div>
+
+  <div class="grid g2 mt">
+    <div class="card"><h3>Budgets this month</h3><div id="budgets"></div></div>
+    <div class="card"><h3>Smart insights</h3><ul class="insights" id="insights"></ul></div>
+  </div>
+
+  <div class="card mt"><h3>Recent expenses</h3>
+    <div class="table-wrap"><table><thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Payment</th><th class="amt">Amount</th></tr></thead>
+    <tbody id="recent"></tbody></table></div></div>
+</main>
+<script src="js/config.js"></script><script src="js/common.js"></script>
+<script>
+requireAuth(); buildShell("dashboard", "Dashboard");
+let data;
+async function load() {
+  try {
+    const { from, to } = rangeFor($("#period").value);
+    data = await api(`/analytics/summary?from=${from}&to=${to}`);
+    draw();
+  } catch (e) { toast(e.message, "err"); }
+}
+function draw() {
+  const d = data;
+  $("#sTotal").textContent = fmt(d.total); $("#sCount").textContent = d.count + " transactions";
+  $("#sMonth").textContent = fmt(d.thisMonth);
+  $("#sChange").innerHTML = d.changePercent == null ? "No data for last month"
+    : `<span class="${d.changePercent > 0 ? "up" : "down"}">${d.changePercent > 0 ? "▲" : "▼"} ${Math.abs(d.changePercent)}%</span> vs last month`;
+  $("#sProj").textContent = fmt0(d.projectedMonthEnd);
+  $("#sTop").textContent = d.topCategory || "–"; $("#sAvg").textContent = "Avg " + fmt(d.average) + " / expense";
+  drawCategoryChart("cCat", d); drawMonthlyChart("cMonth", d); drawDailyChart("cDay", d);
+  renderBudgets($("#budgets"), d.budgets); renderInsights($("#insights"), d.insights);
+  $("#recent").innerHTML = d.recent.length ? d.recent.map(e => `<tr><td>${fmtDate(e.expenseDate)}</td><td>${esc(e.description || "—")}</td>
+    <td><span class="badge">${esc(e.category)}</span></td><td>${esc(e.paymentMethod)}</td><td class="amt">${fmt(e.amount)}</td></tr>`).join("")
+    : `<tr><td colspan="5" class="empty">No expenses yet. Add your first one!</td></tr>`;
+}
+window.onThemeChange = () => data && draw();
+$("#period").onchange = load; load();
+</script></body></html>

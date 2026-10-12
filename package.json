@@ -1,0 +1,10 @@
+{
+  "name": "expense-tracker-frontend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Plain HTML/CSS/JS frontend - no build step",
+  "scripts": {
+    "dev": "npx --yes serve -l 5500 .",
+    "start": "npx --yes serve -l 5500 ."
+  }
+}

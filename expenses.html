@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Expenses – Expense Tracker</title><link rel="stylesheet" href="css/style.css">
+</head><body>
+<aside class="sidebar" id="sidebar"></aside>
+<main class="main">
+  <div class="topbar" id="topbar"></div>
+  <div class="card">
+    <div class="toolbar">
+      <div class="field" style="margin:0"><label>Search</label><input id="q" placeholder="Search description…"></div>
+      <div class="field" style="margin:0"><label>Category</label><select id="fCat"><option value="">All categories</option></select></div>
+      <div class="field" style="margin:0"><label>From</label><input type="date" id="fFrom"></div>
+      <div class="field" style="margin:0"><label>To</label><input type="date" id="fTo"></div>
+      <div class="field" style="margin:0"><label>Sort by</label>
+        <select id="fSort"><option value="expenseDate|desc">Newest first</option><option value="expenseDate|asc">Oldest first</option>
+        <option value="amount|desc">Amount: high → low</option><option value="amount|asc">Amount: low → high</option><option value="category|asc">Category A–Z</option></select></div>
+      <div style="display:flex;gap:8px"><button class="btn" id="addBtn">➕ Add</button>
+        <button class="btn ghost" id="exportBtn" title="Download filtered expenses as CSV">⬇ CSV</button></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:6px">
+      <button class="btn ghost sm" id="clearBtn">Clear filters</button>
+      <b id="filteredTotal"></b></div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Date</th><th>Description</th><th>Category</th><th>Payment</th><th class="amt">Amount</th><th></th></tr></thead>
+      <tbody id="rows"></tbody></table></div>
+    <div class="pager"><span id="pageInfo"></span>
+      <div style="display:flex;gap:8px"><button class="btn ghost sm" id="prev">← Prev</button><button class="btn ghost sm" id="next">Next →</button></div></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="modal"><div class="modal">
+  <h3 id="mTitle">Add expense</h3>
+  <form id="form" novalidate>
+    <div class="row2">
+      <div class="field"><label>Amount *</label><input type="number" step="0.01" min="0.01" id="mAmount" placeholder="0.00"></div>
+      <div class="field"><label>Date *</label><input type="date" id="mDate"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Category *</label><input id="mCat" list="catList" placeholder="e.g. Food"><datalist id="catList"></datalist></div>
+      <div class="field"><label>Payment method</label><select id="mPay"></select></div>
+    </div>
+    <div class="field"><label>Description</label><input id="mDesc" maxlength="255" placeholder="What was it for?"></div>
+    <div class="err" id="mErr"></div>
+    <div class="actions"><button type="button" class="btn ghost" id="mCancel">Cancel</button><button class="btn" id="mSave">Save</button></div>
+  </form>
+</div></div>
+
+<script src="js/config.js"></script><script src="js/common.js"></script>
+<script>
+requireAuth(); buildShell("expenses", "Expenses");
+let page = 0, totalPages = 1, editId = null, timer;
+const SIZE = 10;
+
+$("#mPay").innerHTML = APP_CONFIG.PAYMENT_METHODS.map(p => `<option>${p}</option>`).join("");
+
+function params(extra = {}) {
+  const [sortBy, dir] = $("#fSort").value.split("|");
+  const p = new URLSearchParams({ category: $("#fCat").value, q: $("#q").value.trim(), sortBy, dir, ...extra });
+  if ($("#fFrom").value) p.set("from", $("#fFrom").value);
+  if ($("#fTo").value) p.set("to", $("#fTo").value);
+  return p;
+}
+async function loadCategories() {
+  const mine = await api("/expenses/categories");
+  const all = [...new Set([...APP_CONFIG.CATEGORIES, ...mine])].sort();
+  const cur = $("#fCat").value;
+  $("#fCat").innerHTML = `<option value="">All categories</option>` + mine.map(c => `<option>${esc(c)}</option>`).join("");
+  $("#fCat").value = cur;
+  $("#catList").innerHTML = all.map(c => `<option value="${esc(c)}">`).join("");
+}
+async function load() {
+  try {
+    const r = await api("/expenses?" + params({ page, size: SIZE }));
+    totalPages = r.totalPages;
+    $("#filteredTotal").textContent = `Total: ${fmt(r.totalAmount)}  (${r.totalElements} expenses)`;
+    $("#rows").innerHTML = r.content.length ? r.content.map(e => `<tr>
+      <td>${fmtDate(e.expenseDate)}</td><td>${esc(e.description || "—")}</td><td><span class="badge">${esc(e.category)}</span></td>
+      <td>${esc(e.paymentMethod)}</td><td class="amt">${fmt(e.amount)}</td>
+      <td style="text-align:right"><button class="btn ghost sm" data-edit='${JSON.stringify(e).replace(/'/g, "&#39;")}'>✏️</button>
+      <button class="btn ghost sm" data-del="${e.id}">🗑</button></td></tr>`).join("")
+      : `<tr><td colspan="6" class="empty">No expenses found.</td></tr>`;
+    $("#pageInfo").textContent = `Page ${r.totalPages ? r.page + 1 : 0} of ${r.totalPages}`;
+    $("#prev").disabled = page <= 0; $("#next").disabled = page + 1 >= totalPages;
+    $$("[data-edit]").forEach(b => b.onclick = () => openModal(JSON.parse(b.dataset.edit)));
+    $$("[data-del]").forEach(b => b.onclick = () => del(b.dataset.del));
+  } catch (e) { toast(e.message, "err"); }
+}
+function reload(resetPage = true) { if (resetPage) page = 0; load(); }
+
+["fCat", "fFrom", "fTo", "fSort"].forEach(id => $("#" + id).onchange = () => reload());
+$("#q").oninput = () => { clearTimeout(timer); timer = setTimeout(() => reload(), 350); };
+$("#clearBtn").onclick = () => { $("#q").value = ""; $("#fCat").value = ""; $("#fFrom").value = ""; $("#fTo").value = ""; $("#fSort").selectedIndex = 0; reload(); };
+$("#prev").onclick = () => { page--; load(); };
+$("#next").onclick = () => { page++; load(); };
+
+$("#exportBtn").onclick = async () => {
+  try {
+    const p = params(); p.delete("sortBy"); p.delete("dir");
+    const res = await fetch(API + "/expenses/export?" + p, { headers: { Authorization: "Bearer " + getToken() } });
+    if (!res.ok) throw new Error("Export failed");
+    const url = URL.createObjectURL(await res.blob());
+    const a = Object.assign(document.createElement("a"), { href: url, download: "expenses.csv" });
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+  } catch (e) { toast(e.message, "err"); }
+};
+
+function openModal(e) {
+  editId = e ? e.id : null;
+  $("#mTitle").textContent = e ? "Edit expense" : "Add expense";
+  $("#mAmount").value = e ? e.amount : ""; $("#mDate").value = e ? e.expenseDate : iso(new Date());
+  $("#mCat").value = e ? e.category : ""; $("#mDesc").value = e ? (e.description || "") : "";
+  $("#mPay").value = e ? e.paymentMethod : "Cash"; $("#mErr").textContent = "";
+  $("#modal").classList.add("show"); $("#mAmount").focus();
+}
+const closeModal = () => $("#modal").classList.remove("show");
+$("#addBtn").onclick = () => openModal(null);
+$("#mCancel").onclick = closeModal;
+$("#modal").onclick = e => { if (e.target.id === "modal") closeModal(); };
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+$("#form").addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const amount = parseFloat($("#mAmount").value), category = $("#mCat").value.trim(), expenseDate = $("#mDate").value;
+  const err = m => $("#mErr").textContent = m;
+  if (!(amount > 0)) return err("Enter an amount greater than 0");
+  if (!category) return err("Category is required");
+  if (!expenseDate) return err("Pick a date");
+  const body = JSON.stringify({ amount, category, expenseDate, description: $("#mDesc").value.trim(), paymentMethod: $("#mPay").value });
+  $("#mSave").disabled = true;
+  try {
+    await api(editId ? "/expenses/" + editId : "/expenses", { method: editId ? "PUT" : "POST", body });
+    closeModal(); toast(editId ? "Expense updated" : "Expense added");
+    await loadCategories(); reload(!editId);
+  } catch (e) { err(e.message); } finally { $("#mSave").disabled = false; }
+});
+
+async function del(id) {
+  if (!confirm("Delete this expense?")) return;
+  try { await api("/expenses/" + id, { method: "DELETE" }); toast("Expense deleted"); await loadCategories(); if (page > 0 && $$("[data-del]").length === 1) page--; load(); }
+  catch (e) { toast(e.message, "err"); }
+}
+
+loadCategories().then(() => load());
+if (new URLSearchParams(location.search).get("add")) openModal(null);
+</script></body></html>

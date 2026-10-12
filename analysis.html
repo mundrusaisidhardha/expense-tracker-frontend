@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Analysis – Expense Tracker</title><link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head><body>
+<aside class="sidebar" id="sidebar"></aside>
+<main class="main">
+  <div class="topbar" id="topbar"></div>
+
+  <div class="card"><div class="presets">
+    <div class="field"><label>Quick range</label><select id="preset">
+      <option value="month">This month</option><option value="lastmonth">Last month</option><option value="30">Last 30 days</option>
+      <option value="year">This year</option><option value="all">All time</option><option value="custom">Custom…</option></select></div>
+    <div class="field"><label>From</label><input type="date" id="from"></div>
+    <div class="field"><label>To</label><input type="date" id="to"></div>
+    <button class="btn" id="apply">Apply</button></div></div>
+
+  <div class="grid g4 mt">
+    <div class="card stat"><div class="label">Total</div><div class="value" id="sTotal">–</div><div class="sub" id="sCount"></div></div>
+    <div class="card stat"><div class="label">Average / expense</div><div class="value" id="sAvg">–</div></div>
+    <div class="card stat"><div class="label">Highest expense</div><div class="value" id="sHigh">–</div><div class="sub" id="sHighSub"></div></div>
+    <div class="card stat"><div class="label">Top category</div><div class="value" id="sTop">–</div></div>
+  </div>
+
+  <div class="grid g2 mt">
+    <div class="card"><h3>By category</h3><div class="chart-box"><canvas id="cCat"></canvas></div></div>
+    <div class="card"><h3>Payment methods</h3><div class="chart-box"><canvas id="cPay"></canvas></div></div>
+  </div>
+  <div class="grid g2 mt">
+    <div class="card"><h3>Spending by weekday</h3><div class="chart-box"><canvas id="cWeek"></canvas></div></div>
+    <div class="card"><h3>Monthly trend</h3><div class="chart-box"><canvas id="cMonth"></canvas></div></div>
+  </div>
+  <div class="card mt"><h3>Daily spending</h3><div class="chart-box" style="height:240px"><canvas id="cDay"></canvas></div></div>
+
+  <div class="grid g2 mt">
+    <div class="card"><h3>Category breakdown</h3><div class="table-wrap"><table>
+      <thead><tr><th>Category</th><th>Count</th><th>Share</th><th class="amt">Total</th></tr></thead><tbody id="catRows"></tbody></table></div></div>
+    <div class="card"><h3>Smart insights</h3><ul class="insights" id="insights"></ul></div>
+  </div>
+
+  <div class="card mt"><h3>🎯 Monthly budgets</h3>
+    <form id="bForm" class="presets" novalidate style="margin-bottom:16px">
+      <div class="field"><label>Category</label><input id="bCat" list="bCats" placeholder="ALL = overall budget" value="ALL"><datalist id="bCats"></datalist></div>
+      <div class="field"><label>Monthly limit</label><input type="number" min="1" step="1" id="bLimit" placeholder="e.g. 5000"></div>
+      <button class="btn">Save budget</button></form>
+    <div class="err" id="bErr"></div>
+    <div id="budgets"></div></div>
+</main>
+<script src="js/config.js"></script><script src="js/common.js"></script>
+<script>
+requireAuth(); buildShell("analysis", "Analysis & Budgets");
+let data;
+const dark = () => document.documentElement.getAttribute("data-theme") === "dark";
+
+function setPreset() {
+  const v = $("#preset").value;
+  if (v !== "custom") { const r = rangeFor(v); $("#from").value = v === "all" ? "" : r.from; $("#to").value = v === "all" ? "" : r.to; }
+}
+async function load() {
+  try {
+    const v = $("#preset").value;
+    const r = v === "custom" ? { from: $("#from").value || "2000-01-01", to: $("#to").value || "2100-01-01" } : rangeFor(v);
+    data = await api(`/analytics/summary?from=${r.from}&to=${r.to}`);
+    draw();
+  } catch (e) { toast(e.message, "err"); }
+}
+function draw() {
+  const d = data;
+  $("#sTotal").textContent = fmt(d.total); $("#sCount").textContent = d.count + " transactions";
+  $("#sAvg").textContent = fmt(d.average);
+  $("#sHigh").textContent = d.highest ? fmt(d.highest.amount) : "–";
+  $("#sHighSub").textContent = d.highest ? `${d.highest.category} · ${fmtDate(d.highest.date)}` : "";
+  $("#sTop").textContent = d.topCategory || "–";
+
+  drawCategoryChart("cCat", d); drawMonthlyChart("cMonth", d); drawDailyChart("cDay", d);
+  mkChart("cPay", { type: "pie", data: { labels: d.payments.map(p => p.method), datasets: [{ data: d.payments.map(p => p.total), backgroundColor: PALETTE, borderWidth: 0 }] },
+    options: { plugins: { legend: { position: "right" }, tooltip: { callbacks: { label: c => ` ${c.label}: ${fmt(c.parsed)}` } } } } });
+  mkChart("cWeek", { type: "bar", data: { labels: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"], datasets: [{ data: d.weekday, backgroundColor: "#10b981", borderRadius: 6 }] },
+    options: { plugins: { legend: { display: false }, tooltip: moneyTip }, scales: { y: { ticks: { callback: moneyTick }, beginAtZero: true } } } });
+
+  $("#catRows").innerHTML = d.byCategory.length ? d.byCategory.map((c, i) => `<tr><td><span class="badge" style="background:${PALETTE[i % PALETTE.length]}22;color:${PALETTE[i % PALETTE.length]}">${esc(c.category)}</span></td>
+    <td>${c.count}</td><td style="min-width:110px"><div class="bar"><i style="width:${c.percent}%;background:${PALETTE[i % PALETTE.length]}"></i></div><small>${c.percent}%</small></td>
+    <td class="amt">${fmt(c.total)}</td></tr>`).join("") : `<tr><td colspan="4" class="empty">No data for this range.</td></tr>`;
+  renderInsights($("#insights"), d.insights);
+  renderBudgets($("#budgets"), d.budgets, deleteBudget);
+  $("#bCats").innerHTML = `<option value="ALL">` + [...new Set([...APP_CONFIG.CATEGORIES, ...d.byCategory.map(c => c.category)])].map(c => `<option value="${esc(c)}">`).join("");
+}
+async function deleteBudget(id) {
+  if (!confirm("Remove this budget?")) return;
+  try { await api("/budgets/" + id, { method: "DELETE" }); toast("Budget removed"); load(); } catch (e) { toast(e.message, "err"); }
+}
+$("#bForm").addEventListener("submit", async e => {
+  e.preventDefault(); $("#bErr").textContent = "";
+  const category = $("#bCat").value.trim(), monthlyLimit = parseFloat($("#bLimit").value);
+  if (!category) return $("#bErr").textContent = "Enter a category (or ALL)";
+  if (!(monthlyLimit >= 1)) return $("#bErr").textContent = "Enter a limit of at least 1";
+  try { await api("/budgets", { method: "POST", body: JSON.stringify({ category, monthlyLimit }) }); toast("Budget saved"); $("#bLimit").value = ""; load(); }
+  catch (ex) { $("#bErr").textContent = ex.message; }
+});
+$("#preset").onchange = () => { setPreset(); if ($("#preset").value !== "custom") load(); };
+["from", "to"].forEach(id => $("#" + id).onchange = () => $("#preset").value = "custom");
+$("#apply").onclick = load;
+window.onThemeChange = () => data && draw();
+setPreset(); load();
+</script></body></html>

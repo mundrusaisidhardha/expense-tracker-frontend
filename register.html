@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Register – Expense Tracker</title><link rel="stylesheet" href="css/style.css">
+</head><body>
+<div class="auth-wrap">
+  <section class="auth-hero">
+    <h1>Start tracking in 30 seconds</h1>
+    <p>Create a free account and take control of your spending.</p>
+    <ul><li>✅ Add expenses in a few clicks</li><li>✅ Visual charts &amp; smart insights</li><li>✅ Your data is private to you</li></ul>
+  </section>
+  <section class="auth-card">
+    <form id="form" novalidate>
+      <h2>Create account</h2><p class="sub">It only takes a minute</p>
+      <div class="field"><label>Full name</label><input id="name" placeholder="Your name" autocomplete="name" required></div>
+      <div class="field"><label>Email</label><input type="email" id="email" placeholder="you@example.com" autocomplete="email" required></div>
+      <div class="field"><label>Password</label>
+        <div class="pw-wrap"><input type="password" id="password" placeholder="At least 6 characters" autocomplete="new-password" required>
+        <button type="button" id="eye" aria-label="Show password">👁</button></div>
+        <div class="strength"><i id="meter"></i></div><small id="meterText" style="color:var(--muted)"></small></div>
+      <div class="field"><label>Confirm password</label><input type="password" id="confirm" placeholder="Repeat password" autocomplete="new-password" required></div>
+      <div class="err" id="err"></div>
+      <div id="backendStatus" style="font-size:.85rem;margin:6px 0 12px"></div>
+      <button class="btn" style="width:100%;justify-content:center" id="submit">Register</button>
+      <p style="text-align:center;margin-top:18px">Already have an account? <a href="login.html">Log in</a></p>
+    </form>
+  </section>
+</div>
+<script src="js/config.js"></script><script src="js/common.js"></script>
+<script>
+if (getToken()) location.href = "dashboard.html";
+showBackendStatus($("#backendStatus"));
+$("#eye").onclick = () => { const p = $("#password"); p.type = p.type === "password" ? "text" : "password"; };
+$("#password").addEventListener("input", () => {
+  const p = $("#password").value;
+  let s = 0; if (p.length >= 6) s++; if (p.length >= 10) s++; if (/[A-Z]/.test(p) && /[a-z]/.test(p)) s++; if (/\d/.test(p)) s++; if (/[^A-Za-z0-9]/.test(p)) s++;
+  const lv = [["0%", "#ccc", ""], ["25%", "#dc2626", "Weak"], ["45%", "#f59e0b", "Fair"], ["70%", "#84cc16", "Good"], ["100%", "#16a34a", "Strong"], ["100%", "#16a34a", "Strong"]][p ? Math.max(1, s) : 0];
+  $("#meter").style.width = lv[0]; $("#meter").style.background = lv[1]; $("#meterText").textContent = lv[2];
+});
+$("#form").addEventListener("submit", async e => {
+  e.preventDefault();
+  const name = $("#name").value.trim(), email = $("#email").value.trim(), password = $("#password").value;
+  const err = m => $("#err").textContent = m; err("");
+  if (!name) return err("Please enter your name");
+  if (!/^\S+@\S+\.\S+$/.test(email)) return err("Enter a valid email address");
+  if (password.length < 6) return err("Password must be at least 6 characters");
+  if (password !== $("#confirm").value) return err("Passwords do not match");
+  const btn = $("#submit"); btn.disabled = true; btn.textContent = "Creating account…";
+  try {
+    saveSession(await api("/auth/register", { method: "POST", body: JSON.stringify({ name, email, password }) }));
+    location.href = "dashboard.html";
+  } catch (ex) { err(ex.message); btn.disabled = false; btn.textContent = "Register"; }
+});
+</script></body></html>
